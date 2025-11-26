@@ -6,14 +6,16 @@ import (
 
 	"github.com/Dancoi/gogen-self-deploy/internal/fetcher"
 	"github.com/spf13/cobra"
+	"github.com/Dancoi/gogen-self-deploy/internal/dto"
+	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "gogen-self-deploy",
 	Short: "Самостоятельный деплой",
-	Long: `gogen-self-deploy - это инструмент для самостоятельного деплоя приложений.`,
-	
-	Run: func(cmd *cobra.Command, args []string) { 
+	Long:  `gogen-self-deploy - это инструмент для самостоятельного деплоя приложений.`,
+
+	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) < 2 {
 			cmd.Help()
 			return
@@ -21,14 +23,35 @@ var rootCmd = &cobra.Command{
 		repoURL := args[0]
 		dir := args[1]
 
-		if err := fetcher.CloneRepo(repoURL, dir); err != nil {
+		DTO_Repo := dto.RepoDTO{
+			RepoURL:   repoURL,
+			OutputDir: dir,
+			RepoName: fetcher.NameRepo(repoURL),
+		}
+
+		if err := fetcher.CloneRepo(DTO_Repo.RepoURL, DTO_Repo.OutputDir); err != nil {
 			fmt.Println("Error cloning repository:", err)
 			return
 		}
-		fmt.Println("Repository cloned successfully to", dir)
+		fmt.Println("Repository cloned successfully to", DTO_Repo.OutputDir)
+
+		var analyzerRep *analyzer.ProjectAnalysisResult
+		// if analyzerRep, err := analyzer.AnalyzRepo(DTO_Repo); err != nil {
+		// 	fmt.Println("Error analyzing repository:", err)
+		// 	return
+		// }
+		analyzerRep, err := analyzer.AnalyzRepo(DTO_Repo)
+		if err != nil {
+			fmt.Println("Error analyzing repository:", err)
+			return
+		}
+		fmt.Println("Repository analyzed successfully")
+
+		if analyzerRep != nil {
+			analyzerRep.PrintSummary()
+		}
 	},
 }
-
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {

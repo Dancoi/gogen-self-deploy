@@ -1,5 +1,9 @@
 package analyzer
 
+import (
+	"fmt"
+)
+
 // Языки программирования
 type Language string
 
@@ -91,4 +95,16 @@ type ProjectAnalysisResult struct {
 	//Основной фреймворк и его версия (для одиночных проектов)
 	MainFramework        string `json:"main_framework"`
 	MainFrameworkVersion string `json:"main_framework_version"`
+}
+
+
+func (par *ProjectAnalysisResult) PrintSummary() {
+	fmt.Println("Project Analysis Summary:")
+	fmt.Printf("Repository Name: %s\n", par.RepositoryName)
+	fmt.Printf("Pipeline Strategy: %s\n", par.PipelineStrategy)
+	fmt.Printf("Number of Modules: %d\n", len(par.Modules))
+	for _, module := range par.Modules {
+		fmt.Printf("- Module Name: %s, Language: %s, Build Tool: %s, Framework: %s\n",
+			module.Name, module.Language, module.BuildTool, module.Framework)
+	}
 }

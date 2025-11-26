@@ -6,11 +6,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/Dancoi/gogen-self-deploy/internal/dto"
 )
 
-func AnalyzeGoModule(result *ProjectAnalysisResult) {
-	//root := dto.RepoTDO.OutputDir
-	root := "./tempfile"
+func AnalyzeGoModule(dto dto.RepoDTO, result *ProjectAnalysisResult) {
+	root := dto.OutputDir + "/" + dto.RepoName
+	// root := "./tempfile"
 
 	// Читаем содержимое корневой директории tempfile
 	entries, err := os.ReadDir(root)

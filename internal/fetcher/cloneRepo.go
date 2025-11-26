@@ -10,7 +10,7 @@ import (
 	"path"
 )
 
-func nameRepo(repoURL string) string {
+func NameRepo(repoURL string) string {
 	repoURL = strings.TrimSpace(repoURL)
 	repoURL = strings.TrimSuffix(repoURL, "/")
 
@@ -38,7 +38,7 @@ func nameRepo(repoURL string) string {
 // CloneRepo clones a repository from the given URL to the specified directory.			
 func CloneRepo(repoURL, dir string) error {
 	
-	dir = filepath.Join(dir, nameRepo(repoURL))
+	dir = filepath.Join(dir, NameRepo(repoURL))
 	path := filepath.Join(dir, ".git")
 
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
