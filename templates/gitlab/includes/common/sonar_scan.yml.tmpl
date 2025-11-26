@@ -1,0 +1,13 @@
+# (Include) Фрагмент: SonarQube анализ
+# Ожидает переменную SONAR_TOKEN в CI/CD variables.
+sonar:
+  stage: sonar
+  image: sonarsource/sonar-scanner-cli:latest
+  rules:
+    - if: '$SONAR_TOKEN'
+  variables:
+    SONAR_HOST_URL: "{{ .Opt.SonarHost }}"
+    SONAR_LOGIN: "$SONAR_TOKEN"
+  script:
+    - sonar-scanner -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=.
+  allow_failure: true

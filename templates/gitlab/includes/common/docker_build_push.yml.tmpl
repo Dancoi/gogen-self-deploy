@@ -1,0 +1,25 @@
+# (Include) Фрагмент: build + push Docker image (DIND)
+docker_build_push:
+  stage: docker
+  image: docker:24.0.7
+  services:
+    - name: docker:24.0.7-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_DRIVER: overlay2
+  before_script:
+    - |
+      if [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      fi
+  script:
+    - IMAGE="${CI_REGISTRY_IMAGE:-{{ .Opt.RegistryProject }}}"
+    - TAG="${CI_COMMIT_SHORT_SHA:-local}"
+    - if [ -z "$IMAGE" ]; then echo "No image configured"; exit 1; fi
+    - docker build -t "$IMAGE:$TAG" -f Dockerfile .
+    - docker push "$IMAGE:$TAG"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ] || [ "$CI_COMMIT_BRANCH" = "master" ]; then
+        docker tag "$IMAGE:$TAG" "$IMAGE:latest"
+        docker push "$IMAGE:latest"
+      fi

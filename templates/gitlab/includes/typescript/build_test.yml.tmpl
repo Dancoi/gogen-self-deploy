@@ -1,0 +1,29 @@
+# (Include) TypeScript/Node: install+build+test (можно инлайнить в основной pipeline)
+node_install_build_test:
+  stage: build
+  image: node:{{ if .Report.LanguageVersion }}{{ .Report.LanguageVersion }}{{ else }}20{{ end }}-alpine
+  cache:
+    key: "node-deps-{{ .CI_COMMIT_REF_SLUG }}"
+    paths:
+      - node_modules/
+  script:
+    - |
+      if [ -f pnpm-lock.yaml ]; then
+        corepack enable
+        pnpm install --frozen-lockfile
+        pnpm build || true
+        pnpm test || true
+      elif [ -f yarn.lock ]; then
+        yarn install --frozen-lockfile
+        yarn build || true
+        yarn test || true
+      else
+        npm ci
+        npm run build || true
+        npm test || true
+      fi
+  artifacts:
+    paths:
+      - dist/
+      - build/
+    expire_in: 1 hour

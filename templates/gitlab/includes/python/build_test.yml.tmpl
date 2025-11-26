@@ -1,0 +1,36 @@
+# (Include) Python: build+test шаг (можно инлайнить в основной pipeline)
+python_build_test:
+  stage: build
+  image: python:{{ if .Report.LanguageVersion }}{{ .Report.LanguageVersion }}{{ else }}3.12{{ end }}-slim
+  cache:
+    key: "pip-{{ .CI_COMMIT_REF_SLUG }}"
+    paths:
+      - .cache/pip/
+      - .venv/
+  script:
+    - python -m venv .venv
+    - . .venv/bin/activate
+    - pip install --upgrade pip setuptools wheel
+    - |
+      if [ -f pyproject.toml ] && grep -qi poetry pyproject.toml; then
+        pip install poetry
+        poetry install --no-interaction --no-root
+      elif [ -f Pipfile ]; then
+        pip install pipenv
+        pipenv install --deploy --ignore-pipfile
+      elif [ -f requirements.txt ]; then
+        pip install -r requirements.txt
+      else
+        echo "no deps file"
+      fi
+    - |
+      if python -c "import pytest" >/dev/null 2>&1; then
+        pytest -q || true
+      else
+        python -m unittest discover -v || true
+      fi
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - .venv/

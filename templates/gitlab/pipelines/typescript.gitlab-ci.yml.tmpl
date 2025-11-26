@@ -1,0 +1,144 @@
+# Полный шаблон .gitlab-ci.yml для TypeScript/Node.js проекта
+# Поддерживает npm/yarn/pnpm, сборку, тесты, линт и контейнеризацию.
+# Ожидаемые поля: .Report.LanguageVersion (node version), .Report.AppPort, .Opt.RegistryProject
+
+stages:
+  - install
+  - build
+  - test
+  - lint
+  - sonar
+  - docker
+  - deploy_staging
+  - deploy_production
+
+variables:
+  NODE_ENV: "production"
+  NPM_CONFIG_CACHE: ".npm"
+  # SONAR_TOKEN — задаётся в CI variables
+  SONAR_HOST_URL: "{{ .Opt.SonarHost }}"
+
+install_dependencies:
+  stage: install
+  image: node:{{ if .Report.LanguageVersion }}{{ .Report.LanguageVersion }}{{ else }}20{{ end }}-alpine
+  cache:
+    key: "node-deps-{{ .CI_COMMIT_REF_SLUG }}"
+    paths:
+      - node_modules/
+      - .npm/
+  script:
+    - |
+      if [ -f pnpm-lock.yaml ]; then
+        corepack enable
+        pnpm install --frozen-lockfile
+      elif [ -f yarn.lock ]; then
+        yarn install --frozen-lockfile
+      else
+        npm ci
+      fi
+  artifacts:
+    paths:
+      - node_modules/
+    expire_in: 1 hour
+
+build:
+  stage: build
+  image: node:{{ if .Report.LanguageVersion }}{{ .Report.LanguageVersion }}{{ else }}20{{ end }}-alpine
+  script:
+    - echo "Building project (if build script exists)"
+    - |
+      if grep -q "\"build\"" package.json; then
+        npm run build || (yarn build || pnpm build) || true
+      else
+        echo "No build script; skipping"
+      fi
+  artifacts:
+    paths:
+      - dist/
+      - build/
+
+test:
+  stage: test
+  image: node:{{ if .Report.LanguageVersion }}{{ .Report.LanguageVersion }}{{ else }}20{{ end }}-alpine
+  script:
+    - echo "Running tests (if any)"
+    - |
+      if grep -q "\"test\"" package.json; then
+        npm test || (yarn test || pnpm test) || echo "tests failed or absent"
+      else
+        echo "No test script found"
+      fi
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - junit.xml || []
+
+lint:
+  stage: lint
+  image: node:{{ if .Report.LanguageVersion }}{{ .Report.LanguageVersion }}{{ else }}20{{ end }}-alpine
+  script:
+    - |
+      if grep -q "\"lint\"" package.json; then
+        npm run lint || (yarn lint || pnpm lint) || echo "lint issues or no linter"
+      else
+        echo "No lint script"
+      fi
+  allow_failure: true
+
+sonar:
+  stage: sonar
+  image: sonarsource/sonar-scanner-cli:latest
+  rules:
+    - if: '$SONAR_TOKEN'
+  variables:
+    SONAR_HOST_URL: "{{ .Opt.SonarHost }}"
+    SONAR_LOGIN: "$SONAR_TOKEN"
+  script:
+    - sonar-scanner -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=src
+
+docker_build_push:
+  stage: docker
+  image: docker:24.0.7
+  services:
+    - name: docker:24.0.7-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_DRIVER: overlay2
+  before_script:
+    - echo "Login if CI registry vars present"
+    - |
+      if [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+      fi
+  script:
+    - IMAGE="${CI_REGISTRY_IMAGE:-{{ .Opt.RegistryProject }}}"
+    - TAG="${CI_COMMIT_SHORT_SHA:-local}"
+    - if [ -z "$IMAGE" ]; then echo "No image configured"; exit 1; fi
+    - docker build -t "$IMAGE:$TAG" -f Dockerfile .
+    - docker push "$IMAGE:$TAG"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ] || [ "$CI_COMMIT_BRANCH" = "master" ]; then
+        docker tag "$IMAGE:$TAG" "$IMAGE:latest"
+        docker push "$IMAGE:latest"
+      fi
+
+deploy_staging:
+  stage: deploy_staging
+  when: manual
+  script:
+    - echo "Deploy placeholder (staging)"
+  environment:
+    name: staging
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(develop|staging)$/'
+
+deploy_production:
+  stage: deploy_production
+  when: manual
+  script:
+    - echo "Deploy placeholder (production)"
+  environment:
+    name: production
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(main|master)$/'

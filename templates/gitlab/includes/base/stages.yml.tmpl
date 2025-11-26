@@ -1,0 +1,9 @@
+# (Include) Общий файл со списком стадий — вариант для будущей модульной сборки пайплайна.
+# Если будете собирать пайплайн из includes, инклудьте этот блок в начало итогового YAML.
+stages:
+  - build
+  - test
+  - sonar
+  - docker
+  - deploy_staging
+  - deploy_production
