@@ -63,7 +63,6 @@ func Execute() {
 }
 
 func init() {
-	// Here you will define your flags and configuration settings.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
