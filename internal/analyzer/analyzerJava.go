@@ -1,13 +1,34 @@
 package analyzer
 
 import (
-	"log"
+	"encoding/xml"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// containsString проверяет, содержит ли срез строк указанное значение.
+type PomProject struct {
+	Parent       PomParent       `xml:"parent"`
+	Properties   PomProperties   `xml:"properties"`
+	Dependencies []PomDependency `xml:"dependencies>dependency"`
+	Packaging    string          `xml:"packaging"`
+}
+type PomParent struct {
+	GroupId    string `xml:"groupId"`
+	ArtifactId string `xml:"artifactId"`
+	Version    string `xml:"version"`
+}
+type PomDependency struct {
+	GroupId    string `xml:"groupId"`
+	ArtifactId string `xml:"artifactId"`
+	Version    string `xml:"version"`
+}
+type PomProperties struct {
+	JavaVersion         string `xml:"java.version"`
+	MavenCompilerSource string `xml:"maven.compiler.source"`
+}
+
 func containsString(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -17,113 +38,110 @@ func containsString(slice []string, item string) bool {
 	return false
 }
 
-func AnalyzeJava(result *ProjectAnalysisResult, start string) {
+func AnalyzeJavaModule(result *ProjectAnalysisResult, start string) {
 	targetFiles := []string{"pom.xml", "build.gradle", "build.gradle.kts"}
 
-	err := filepath.WalkDir(start, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(start, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return nil
+		}
+		if d.IsDir() && shouldSkipDir(d.Name()) {
+			return filepath.SkipDir
 		}
 
-		// Ограничиваем глубину, чтобы не лазить в тесты/примеры слишком глубоко
-		rel, relErr := filepath.Rel(start, path)
-		if relErr != nil {
-			return relErr
-		}
-		depth := strings.Count(rel, string(os.PathSeparator))
-		if depth > 2 {
+		// Ограничение глубины для оптимизации
+		rel, _ := filepath.Rel(start, path)
+		if strings.Count(rel, string(os.PathSeparator)) > 4 {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
-			return nil
 		}
 
 		if !d.IsDir() && containsString(targetFiles, d.Name()) {
-			content, err := os.ReadFile(path)
-			if err != nil {
-				log.Printf("Не удалось прочитать %s по пути %s: %v", d.Name(), path, err)
-				return nil
-			}
-			contentStr := string(content)
-
 			module := &ProjectModule{
-				Name:       filepath.Base(filepath.Dir(path)),
-				ModulePath: path,
-				Language:   LanguageJava,
+				Name:         filepath.Base(filepath.Dir(path)),
+				ModulePath:   path,
+				Language:     LanguageJava,
+				ArtifactPath: "./target/*.jar",
+				AppPort:      "8080",
 			}
+
+			content, _ := ioutil.ReadFile(path)
 
 			if d.Name() == "pom.xml" {
-				module.BuildTool = BuildToolMaven
-				module.BuildCommand = "mvn clean install"
-				module.TestCommand = "mvn test"
-				module.BuilderImage = "maven:3.8.5-jdk-17"
-				module.RuntimeImage = "eclipse-temurin:17-jre-alpine"
-
-				// Версия Java: ищем java.version или maven.compiler.source
-				if strings.Contains(contentStr, "<java.version>") {
-					module.LanguageVersion = extractBetween(contentStr, "<java.version>", "</java.version>")
-				} else if strings.Contains(contentStr, "<maven.compiler.source>") {
-					module.LanguageVersion = extractBetween(contentStr, "<maven.compiler.source>", "</maven.compiler.source>")
-				}
-
-				// Определение Spring Boot и версии (по parent spring-boot-starter-parent)
-				if strings.Contains(contentStr, "spring-boot-starter") {
-					module.Framework = "spring-boot"
-					if strings.Contains(contentStr, "<artifactId>spring-boot-starter-parent</artifactId>") {
-						module.FrameworkVersion = extractBetween(contentStr, "<version>", "</version>")
-					}
-				}
+				analyzeMaven(content, module)
 			} else {
-				// Gradle / Gradle Kotlin
-				module.BuildTool = BuildToolGradle
-				module.BuildCommand = "gradle build"
-				module.TestCommand = "gradle test"
-				module.BuilderImage = "gradle:7.6-jdk17"
-				module.RuntimeImage = "eclipse-temurin:17-jre-alpine"
-
-				// Версия Java: ищем sourceCompatibility/targetCompatibility
-				for _, line := range strings.Split(contentStr, "\n") {
-					line = strings.TrimSpace(line)
-					if strings.HasPrefix(line, "sourceCompatibility") {
-						module.LanguageVersion = strings.Trim(strings.TrimPrefix(line, "sourceCompatibility"), " =\"'")
-					} else if strings.HasPrefix(line, "targetCompatibility") && module.LanguageVersion == "" {
-						module.LanguageVersion = strings.Trim(strings.TrimPrefix(line, "targetCompatibility"), " =\"'")
-					}
-				}
-
-				// Spring Boot: плагин или зависимости org.springframework.boot
-				if strings.Contains(contentStr, "org.springframework.boot") {
-					module.Framework = "spring-boot"
-					// простая попытка вытащить версию из dependency "spring-boot-starter"
-					if idx := strings.Index(contentStr, "spring-boot-starter"); idx != -1 {
-						// оставляем FrameworkVersion пустым или дорабатываем позже
-					}
-				}
+				analyzeGradle(string(content), module)
 			}
 
-			module.ArtifactPath = "./build/libs"
-			module.AppPort = "8080"
+			// --- ФИЛЬТР ШУМА ---
+			// Добавляем модуль, только если это корневой модуль,
+			// ИЛИ у него есть явный фреймворк (Quarkus/Spring),
+			// ИЛИ это явно веб-приложение (war).
+			// Иначе считаем это библиотекой внутри монорепо и пропускаем.
+			isRoot := (filepath.Dir(path) == filepath.Clean(start))
+			hasFramework := module.Framework != ""
+			// Простая эвристика для WAR
+			isWar := strings.Contains(string(content), "<packaging>war</packaging>")
 
-			result.Modules = append(result.Modules, module)
-			return filepath.SkipAll // нашли главный Java‑модуль
+			if isRoot || hasFramework || isWar {
+				result.Modules = append(result.Modules, module)
+			}
+
+			return filepath.SkipDir
 		}
 		return nil
 	})
-	if err != nil {
-		log.Printf("Ошибка при анализе Java модулей: %v", err)
+}
+
+func analyzeMaven(content []byte, module *ProjectModule) {
+	module.BuildTool = BuildToolMaven
+	module.BuildCommand = "mvn clean package -DskipTests"
+	module.TestCommand = "mvn test"
+	module.BuilderImage = "maven:3.9-eclipse-temurin-17"
+	module.RuntimeImage = "eclipse-temurin:17-jre-alpine"
+
+	var pom PomProject
+	if err := xml.Unmarshal(content, &pom); err == nil {
+		// Java Version
+		if pom.Properties.JavaVersion != "" {
+			module.LanguageVersion = pom.Properties.JavaVersion
+		} else if pom.Properties.MavenCompilerSource != "" {
+			module.LanguageVersion = pom.Properties.MavenCompilerSource
+		} else {
+			module.LanguageVersion = "17"
+		}
+
+		// Spring Boot Parent
+		if pom.Parent.ArtifactId == "spring-boot-starter-parent" {
+			module.Framework = "Spring Boot"
+			module.FrameworkVersion = pom.Parent.Version
+		}
+
+		// Dependencies scan
+		for _, dep := range pom.Dependencies {
+			if module.Framework == "" && strings.Contains(dep.GroupId, "org.springframework.boot") {
+				module.Framework = "Spring Boot"
+			}
+			if strings.Contains(dep.GroupId, "io.quarkus") {
+				module.Framework = "Quarkus"
+				if dep.Version != "" {
+					module.FrameworkVersion = dep.Version
+				}
+			}
+		}
 	}
 }
 
-// extractBetween достает подстроку между двумя маркерами, если они найдены.
-func extractBetween(s, start, end string) string {
-	i := strings.Index(s, start)
-	if i == -1 {
-		return ""
+func analyzeGradle(content string, module *ProjectModule) {
+	module.BuildTool = BuildToolGradle
+	module.BuildCommand = "./gradlew build -x test"
+	module.TestCommand = "./gradlew test"
+	module.BuilderImage = "gradle:8.5-jdk17"
+	module.RuntimeImage = "eclipse-temurin:17-jre-alpine"
+	module.LanguageVersion = "17"
+
+	if strings.Contains(content, "org.springframework.boot") {
+		module.Framework = "Spring Boot"
 	}
-	i += len(start)
-	j := strings.Index(s[i:], end)
-	if j == -1 {
-		return ""
-	}
-	return strings.TrimSpace(s[i : i+j])
 }

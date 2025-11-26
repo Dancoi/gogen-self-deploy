@@ -1,45 +1,42 @@
 package analyzer
 
 import (
-	"log"
+	"bufio"
+	"bytes"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func AnalyzePython(result *ProjectAnalysisResult, start string) {
+func AnalyzePythonModule(result *ProjectAnalysisResult, start string) {
 	targetFiles := []string{"requirements.txt", "Pipfile", "pyproject.toml"}
 
-	err := filepath.WalkDir(start, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(start, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return nil
+		}
+		if d.IsDir() && shouldSkipDir(d.Name()) {
+			return filepath.SkipDir
 		}
 
-		// Ограничиваем глубину обхода (чтобы не лазить в глубокие тестовые/служебные директории)
-		rel, relErr := filepath.Rel(start, path)
-		if relErr != nil {
-			return relErr
-		}
-		depth := strings.Count(rel, string(os.PathSeparator))
-		if depth > 2 {
+		rel, _ := filepath.Rel(start, path)
+		if strings.Count(rel, string(os.PathSeparator)) > 3 {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
-			return nil
 		}
 
 		if !d.IsDir() && containsString(targetFiles, d.Name()) {
-			content, err := os.ReadFile(path)
+			content, err := ioutil.ReadFile(path)
 			if err != nil {
-				log.Printf("Не удалось прочитать %s по пути %s: %v", d.Name(), path, err)
 				return nil
 			}
 
 			module := &ProjectModule{
-				Name:       filepath.Base(filepath.Dir(path)),
-				ModulePath: path,
-				Language:   LanguagePython,
-				// общие дефолты
+				Name:         filepath.Base(filepath.Dir(path)),
+				ModulePath:   path,
+				Language:     LanguagePython,
 				BuilderImage: "python:3.11-slim",
 				RuntimeImage: "python:3.11-slim",
 				ArtifactPath: ".",
@@ -50,35 +47,59 @@ func AnalyzePython(result *ProjectAnalysisResult, start string) {
 			case "requirements.txt":
 				module.BuildTool = BuildToolPip
 				module.BuildCommand = "pip install -r requirements.txt"
-				module.TestCommand = "pytest tests/"
+				module.TestCommand = "pytest"
 			case "Pipfile":
 				module.BuildTool = BuildToolPipenv
 				module.BuildCommand = "pipenv install"
-				module.TestCommand = "pipenv run pytest tests/"
+				module.TestCommand = "pipenv run pytest"
 			case "pyproject.toml":
 				module.BuildTool = BuildToolPoetry
 				module.BuildCommand = "poetry install"
-				module.TestCommand = "poetry run pytest tests/"
+				module.TestCommand = "poetry run pytest"
 			}
 
-			// Определение фреймворка (очень простая эвристика)
-			pyProjStr := string(content)
-			lower := strings.ToLower(pyProjStr)
-			if strings.Contains(lower, "django") {
-				module.Framework = "Django"
-			} else if strings.Contains(lower, "flask") {
-				module.Framework = "Flask"
-			} else if strings.Contains(lower, "fastapi") {
-				module.Framework = "FastAPI"
+			fw, ver := detectPythonFramework(content)
+			if fw != "" {
+				module.Framework = fw
+				module.FrameworkVersion = ver
 			}
 
 			result.Modules = append(result.Modules, module)
-			// считаем, что этого Python‑модуля достаточно
-			return filepath.SkipAll
+			return filepath.SkipDir
 		}
 		return nil
 	})
-	if err != nil {
-		log.Printf("Ошибка при обходе директорий для Python: %v", err)
+}
+
+func detectPythonFramework(content []byte) (string, string) {
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	frameworks := []string{"django", "flask", "fastapi", "tornado", "pyramid", "starlette", "sanic"}
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+
+		for _, fw := range frameworks {
+			if line == fw || strings.HasPrefix(line, fw+"=") || strings.HasPrefix(line, fw+">") || strings.HasPrefix(line, fw+"<") {
+				version := ""
+				if strings.Contains(line, "==") {
+					parts := strings.Split(line, "==")
+					if len(parts) > 1 {
+						version = strings.TrimSpace(parts[1])
+					}
+				}
+				return capitalize(fw), version
+			}
+		}
 	}
+	return "", ""
+}
+
+func capitalize(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
