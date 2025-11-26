@@ -2,11 +2,10 @@ package analyzer
 
 func AnalyzRepo(result *ProjectAnalysisResult) {
 	AnalyzeGoModule(result)
-	AnalyzeJavaModule(result)
-	AnalyzeNodeModule(result)
-	AnalyzePythonModule(result)
+	// AnalyzeJavaModule(result)
+	// AnalyzeNodeModule(result)
+	// AnalyzePythonModule(result)
 
-	// Определение стратегии пайплайна
 	if len(result.Modules) > 1 {
 		result.PipelineStrategy = PipelineStrategyMonorepo
 	} else {
