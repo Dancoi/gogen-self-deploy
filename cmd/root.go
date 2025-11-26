@@ -3,11 +3,12 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
+	"github.com/Dancoi/gogen-self-deploy/internal/dto"
 	"github.com/Dancoi/gogen-self-deploy/internal/fetcher"
 	"github.com/spf13/cobra"
-	"github.com/Dancoi/gogen-self-deploy/internal/dto"
-	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
 )
 
 var rootCmd = &cobra.Command{
@@ -36,10 +37,6 @@ var rootCmd = &cobra.Command{
 		fmt.Println("Repository cloned successfully to", DTO_Repo.OutputDir)
 
 		var analyzerRep *analyzer.ProjectAnalysisResult
-		// if analyzerRep, err := analyzer.AnalyzRepo(DTO_Repo); err != nil {
-		// 	fmt.Println("Error analyzing repository:", err)
-		// 	return
-		// }
 		analyzerRep, err := analyzer.AnalyzRepo(DTO_Repo)
 		if err != nil {
 			fmt.Println("Error analyzing repository:", err)
@@ -49,6 +46,12 @@ var rootCmd = &cobra.Command{
 
 		if analyzerRep != nil {
 			analyzerRep.PrintSummary()
+		}
+
+		time.Sleep(2 * time.Second)
+		if err := fetcher.DeleteRepo(DTO_Repo.RepoURL, DTO_Repo.OutputDir); err != nil {
+			fmt.Println("Error deleting repository:", err)
+			return
 		}
 	},
 }

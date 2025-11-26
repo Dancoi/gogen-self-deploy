@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,14 +12,19 @@ import (
 )
 
 func AnalyzeGoModule(dto dto.RepoDTO, result *ProjectAnalysisResult) {
-	root := dto.OutputDir + "/" + dto.RepoName
+	root := dto.OutputDir 
 	// root := "./tempfile"
+	// root := filepath.Join(dto.OutputDir, dto.RepoName)
+	fmt.Println("Analyzing Go modules in:", root)
 
 	// Читаем содержимое корневой директории tempfile
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	result.RepositoryName = dto.RepoName
+	
 
 	for _, entry := range entries {
 		if entry.IsDir() {
