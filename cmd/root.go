@@ -8,6 +8,7 @@ import (
 	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
 	"github.com/Dancoi/gogen-self-deploy/internal/dto"
 	"github.com/Dancoi/gogen-self-deploy/internal/fetcher"
+	"github.com/Dancoi/gogen-self-deploy/internal/generator"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +16,6 @@ var rootCmd = &cobra.Command{
 	Use:   "gogen-self-deploy",
 	Short: "Самостоятельный деплой",
 	Long:  `gogen-self-deploy - это инструмент для самостоятельного деплоя приложений.`,
-
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) < 2 {
 			cmd.Help()
@@ -27,7 +27,7 @@ var rootCmd = &cobra.Command{
 		DTO_Repo := dto.RepoDTO{
 			RepoURL:   repoURL,
 			OutputDir: dir,
-			RepoName: fetcher.NameRepo(repoURL),
+			RepoName:  fetcher.NameRepo(repoURL),
 		}
 
 		if err := fetcher.CloneRepo(DTO_Repo.RepoURL, DTO_Repo.OutputDir); err != nil {
@@ -48,6 +48,24 @@ var rootCmd = &cobra.Command{
 			analyzerRep.PrintSummary()
 		}
 
+		// Выбор генератора по языку: python -> go
+		switch {
+		case hasLanguage(analyzerRep, analyzer.LanguagePython):
+			if err := generator.GeneratePythonPipeline(DTO_Repo.RepoName, analyzerRep); err != nil {
+				fmt.Println("Error generating Python pipeline:", err)
+			} else {
+				fmt.Println("Python pipeline generated and printed")
+			}
+		case hasLanguage(analyzerRep, analyzer.LanguageGo):
+			if err := generator.GenerateGoPipeline(DTO_Repo.RepoName, analyzerRep); err != nil {
+				fmt.Println("Error generating Go pipeline:", err)
+			} else {
+				fmt.Println("Go pipeline generated and printed")
+			}
+		default:
+			fmt.Println("No supported languages detected for pipeline generation")
+		}
+
 		time.Sleep(2 * time.Second)
 		if err := fetcher.DeleteRepo(DTO_Repo.RepoURL, DTO_Repo.OutputDir); err != nil {
 			fmt.Println("Error deleting repository:", err)
@@ -55,6 +73,31 @@ var rootCmd = &cobra.Command{
 		}
 	},
 }
+
+func hasLanguage(analysis *analyzer.ProjectAnalysisResult, lang analyzer.Language) bool {
+	if analysis == nil {
+		return false
+	}
+	// 1) Проверка модулей
+	for _, m := range analysis.Modules {
+		if m.Language == lang {
+			return true
+		}
+	}
+	// 2) Фолбэк: по глобальной статистике языков
+	switch lang {
+	case analyzer.LanguagePython:
+		if p, ok := analysis.Languages["Python"]; ok && p > 0 {
+			return true
+		}
+	case analyzer.LanguageGo:
+		if g, ok := analysis.Languages["Go"]; ok && g > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -65,5 +108,3 @@ func Execute() {
 func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
-
-
