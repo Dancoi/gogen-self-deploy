@@ -1,0 +1,86 @@
+# .gitlab-ci.yml.tmpl — минималистичный pipeline для Go
+# Рендер: envsubst < .gitlab-ci.yml.tmpl > .gitlab-ci.yml
+
+variables:
+  GOLANG_VERSION: "${GOLANG_VERSION:-1.20}"
+  BINARY_NAME: "${BINARY_NAME:-app}"
+  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go/pkg/mod"
+  GOCACHE: "$CI_PROJECT_DIR/.cache/go-build"
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+.cache_default: &cache_default
+  key: "${CI_COMMIT_REF_SLUG}"
+  paths:
+    - .cache/go/pkg/mod
+    - .cache/go-build
+  policy: pull-push
+
+lint:
+  image: golangci/golangci-lint:v1.59.0
+  stage: lint
+  script:
+    - golangci-lint run ./...
+  rules:
+    - when: always
+  <<: *cache_default
+
+test:
+  image: golang:${GOLANG_VERSION}
+  stage: test
+  variables:
+    CGO_ENABLED: "0"
+  script:
+    - mkdir -p .cache/go
+    - export GOMODCACHE="${GOMODCACHE}"
+    - export GOCACHE="${GOCACHE}"
+    - go test ./... -v -coverprofile=coverage.out
+    - if command -v go-junit-report >/dev/null 2>&1; then go test ./... -v | go-junit-report > junit-report.xml; fi || true
+  artifacts:
+    paths:
+      - coverage.out
+      - junit-report.xml
+    expire_in: 1 week
+  <<: *cache_default
+  rules:
+    - when: always
+
+build:
+  image: golang:${GOLANG_VERSION}
+  stage: build
+  variables:
+    CGO_ENABLED: "0"
+  script:
+    - mkdir -p dist
+    - CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o "dist/${BINARY_NAME}" ./...
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+    when: always
+  <<: *cache_default
+  rules:
+    - when: always
+
+deploy:
+  image: alpine:3.18
+  stage: deploy
+  needs:
+    - build
+  script:
+    - echo "Deploy job: получаем артефакты и запускаем deploy-скрипт (если есть)"
+    - ls -la dist || true
+    - chmod +x ./deploy/deploy.sh || true
+    - ./deploy/deploy.sh "${CI_ENVIRONMENT_NAME:-staging}" || echo "Нет deploy скрипта или он вернул ненулевой код"
+  environment:
+    name: "${DEPLOY_ENV:-staging}"
+    url: "${DEPLOY_URL:-http://staging.example.com}"
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      when: manual
+    - when: never
