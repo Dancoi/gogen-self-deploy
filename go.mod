@@ -4,6 +4,7 @@ go 1.25.4
 
 require (
 	github.com/go-git/go-git/v6 v6.0.0-20251125231338-2d242db0996d
+	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.10.1
 )
 
