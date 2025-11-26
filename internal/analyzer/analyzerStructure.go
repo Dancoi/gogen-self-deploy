@@ -27,6 +27,8 @@ const (
 	BuildToolYarn      BuildTool = "yarn"
 	BuildToolPnpm      BuildTool = "pnpm"
 	BuildToolPip       BuildTool = "pip"
+	BuildToolPipenv    BuildTool = "pipenv"
+	BuildToolPoetry    BuildTool = "poetry"
 	BuildToolGoModules BuildTool = "go-modules"
 	BuildToolUnknown   BuildTool = "unknown"
 )
@@ -96,7 +98,6 @@ type ProjectAnalysisResult struct {
 	MainFramework        string `json:"main_framework"`
 	MainFrameworkVersion string `json:"main_framework_version"`
 }
-
 
 func (par *ProjectAnalysisResult) PrintSummary() {
 	fmt.Println("Project Analysis Summary:")

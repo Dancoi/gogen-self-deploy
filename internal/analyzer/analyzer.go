@@ -20,12 +20,13 @@ import "github.com/Dancoi/gogen-self-deploy/internal/dto"
 // }
 
 func AnalyzRepo(dto dto.RepoDTO) (result *ProjectAnalysisResult, err error) {
+	root := dto.OutputDir + "/" + dto.RepoName
 	// Initialize result to avoid nil-pointer dereference in analyzers
 	result = &ProjectAnalysisResult{
 		Modules: []*ProjectModule{},
 	}
 
-	AnalyzeGoModule(dto, result)
+	AnalyzeGoModule(result, root)
 	// AnalyzeJavaModule(result)
 	// AnalyzeNodeModule(result)
 	// AnalyzePythonModule(result)
