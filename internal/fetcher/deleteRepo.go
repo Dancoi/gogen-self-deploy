@@ -9,7 +9,7 @@ func DeleteRepo(repoURL, dir string) error {
 	dir = filepath.Join(dir)
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return nil // Директория не существует, нечего удалять
+		return nil
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		return err
