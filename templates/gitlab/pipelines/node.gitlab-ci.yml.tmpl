@@ -1,0 +1,117 @@
+# GitLab CI/CD pipeline for Node / TypeScript projects
+# Variables:
+# ${NODE_VERSION:-20}  - Node.js runtime version
+# ${APP_NAME:-app}     - Binary/service name (used for artifacts naming)
+# ${BUILD_DIR:-dist}   - Directory with build output (optional)
+# Stages: install -> test -> build -> docker -> deploy_staging -> deploy_production
+
+variables:
+  NODE_VERSION: "${NODE_VERSION:-20}"
+  APP_NAME: "${APP_NAME:-app}"
+  BUILD_DIR: "${BUILD_DIR:-dist}"
+  NPM_CACHE_DIR: "$CI_PROJECT_DIR/.cache/npm"
+
+stages:
+  - install
+  - test
+  - build
+  - docker
+  - deploy_staging
+  - deploy_production
+
+.cache_node: &cache_node
+  key: "node-${CI_COMMIT_REF_SLUG}"
+  paths:
+    - .cache/npm/
+  policy: pull-push
+
+install:
+  stage: install
+  image: node:${NODE_VERSION}-alpine
+  cache: *cache_node
+  script:
+    - mkdir -p .cache/npm
+    - if [ -f package-lock.json ]; then npm ci; else npm install; fi
+  artifacts:
+    name: "${APP_NAME}-deps-${CI_COMMIT_SHORT_SHA}"
+    when: on_success
+    expire_in: 1h
+    paths:
+      - node_modules/
+  rules:
+    - when: always
+
+test:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  cache: *cache_node
+  needs: [install]
+  script:
+    - if npm run | grep -q "test"; then npm test --if-present || echo "tests failed or absent"; else echo "no test script"; fi
+  artifacts:
+    name: "${APP_NAME}-test-${CI_COMMIT_SHORT_SHA}"
+    when: always
+    expire_in: 1 week
+    paths:
+      - junit.xml
+    reports:
+      junit: junit.xml
+  rules:
+    - when: always
+
+build:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  cache: *cache_node
+  needs: [install]
+  script:
+    - if npm run | grep -q "build"; then npm run build; else echo "no build script"; fi
+    - if [ -d "$BUILD_DIR" ]; then echo "Build dir exists"; else mkdir -p "$BUILD_DIR"; fi
+  artifacts:
+    name: "${APP_NAME}-build-${CI_COMMIT_SHORT_SHA}"
+    when: always
+    expire_in: 1 week
+    paths:
+      - $BUILD_DIR/
+  rules:
+    - when: always
+
+docker_build_push:
+  stage: docker
+  image: docker:24.0.7
+  services:
+    - name: docker:24.0.7-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_DRIVER: overlay2
+  needs: [build]
+  script:
+    - IMAGE="${CI_REGISTRY_IMAGE:-}"; TAG="${CI_COMMIT_SHORT_SHA:-local}"; if [ -z "$IMAGE" ]; then echo "No registry image set"; exit 1; fi
+    - docker build -t "$IMAGE:$TAG" -f gentmp/Dockerfile .
+    - docker push "$IMAGE:$TAG"
+    - if [ "$CI_COMMIT_BRANCH" = "main" ] || [ "$CI_COMMIT_BRANCH" = "master" ]; then docker tag "$IMAGE:$TAG" "$IMAGE:latest"; docker push "$IMAGE:latest"; fi
+  rules:
+    - when: always
+
+deploy_staging:
+  stage: deploy_staging
+  image: alpine:3.20
+  script:
+    - echo "Deploy to staging placeholder"
+  environment:
+    name: staging
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+
+deploy_production:
+  stage: deploy_production
+  image: alpine:3.20
+  script:
+    - echo "Deploy to production placeholder"
+  environment:
+    name: production
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+

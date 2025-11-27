@@ -3,12 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
 	"github.com/Dancoi/gogen-self-deploy/internal/dto"
 	"github.com/Dancoi/gogen-self-deploy/internal/fetcher"
-	"github.com/Dancoi/gogen-self-deploy/internal/generator"
+	"github.com/Dancoi/gogen-self-deploy/internal/generator/pipelines_generators"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +19,7 @@ var rootCmd = &cobra.Command{
 	Long:  `gogen-self-deploy - это инструмент для самостоятельного деплоя приложений.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) < 2 {
-			cmd.Help()
+			_ = cmd.Help()
 			return
 		}
 		repoURL := args[0]
@@ -34,6 +35,7 @@ var rootCmd = &cobra.Command{
 			fmt.Println("Error cloning repository:", err)
 			return
 		}
+		repoRoot := filepath.Join(DTO_Repo.OutputDir, DTO_Repo.RepoName)
 		fmt.Println("Repository cloned successfully to", DTO_Repo.OutputDir)
 
 		var analyzerRep *analyzer.ProjectAnalysisResult
@@ -48,16 +50,18 @@ var rootCmd = &cobra.Command{
 			analyzerRep.PrintSummary()
 		}
 
-		// Выбор генератора по языку: python -> go
+		// Языковой выбор: node -> python -> go
 		switch {
-		case hasLanguage(analyzerRep, analyzer.LanguagePython):
-			if err := generator.GeneratePythonPipeline(DTO_Repo.RepoName, analyzerRep); err != nil {
-				fmt.Println("Error generating Python pipeline:", err)
+		case hasLanguage(analyzerRep, analyzer.LanguageJavaScript), hasLanguage(analyzerRep, analyzer.LanguageTypeScript):
+			if err := pipelines_generators.GenerateNodePipeline(DTO_Repo.RepoName, repoRoot, analyzerRep); err != nil {
+				fmt.Println("Error generating Node pipeline:", err)
 			} else {
-				fmt.Println("Python pipeline generated and printed")
+				fmt.Println("Node pipeline generated and printed")
 			}
+		case hasLanguage(analyzerRep, analyzer.LanguagePython):
+			fmt.Println("Python detected: generation to be implemented")
 		case hasLanguage(analyzerRep, analyzer.LanguageGo):
-			if err := generator.GenerateGoPipeline(DTO_Repo.RepoName, analyzerRep); err != nil {
+			if err := pipelines_generators.GenerateGoPipeline(DTO_Repo.RepoName, repoRoot, analyzerRep); err != nil {
 				fmt.Println("Error generating Go pipeline:", err)
 			} else {
 				fmt.Println("Go pipeline generated and printed")
@@ -78,14 +82,21 @@ func hasLanguage(analysis *analyzer.ProjectAnalysisResult, lang analyzer.Languag
 	if analysis == nil {
 		return false
 	}
-	// 1) Проверка модулей
 	for _, m := range analysis.Modules {
 		if m.Language == lang {
 			return true
 		}
 	}
-	// 2) Фолбэк: по глобальной статистике языков
+	// fallback по глобальной статистике
 	switch lang {
+	case analyzer.LanguageJavaScript:
+		if p, ok := analysis.Languages["JavaScript"]; ok && p > 0 {
+			return true
+		}
+	case analyzer.LanguageTypeScript:
+		if t, ok := analysis.Languages["TypeScript"]; ok && t > 0 {
+			return true
+		}
 	case analyzer.LanguagePython:
 		if p, ok := analysis.Languages["Python"]; ok && p > 0 {
 			return true
