@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +19,7 @@ func AnalyzeNodeModule(result *ProjectAnalysisResult, start string) {
 		}
 
 		if !d.IsDir() && containsString(targetFiles, d.Name()) {
-			content, err := ioutil.ReadFile(path)
+			content, err := os.ReadFile(path)
 			if err != nil {
 				return nil
 			}
@@ -58,8 +57,8 @@ func AnalyzeNodeModule(result *ProjectAnalysisResult, start string) {
 				module.Language = LanguageTypeScript
 			}
 
-			if v, ok := pkg.Engines["node"]; ok {
-				module.LanguageVersion = v
+			if v, ok := pkg.Engines["node"]; ok && v != "" {
+				module.LanguageVersion = normalizeNodeVersion(v)
 			} else {
 				module.LanguageVersion = "18"
 			}
@@ -90,4 +89,22 @@ func AnalyzeNodeModule(result *ProjectAnalysisResult, start string) {
 		}
 		return nil
 	})
+}
+
+func normalizeNodeVersion(raw string) string {
+	raw = strings.TrimSpace(raw)
+	parts := strings.Fields(raw)
+	candidate := raw
+	if len(parts) > 1 {
+		candidate = parts[len(parts)-1]
+	}
+	candidate = strings.TrimLeft(candidate, "^~<>= ")
+	i := 0
+	for i < len(candidate) && candidate[i] >= '0' && candidate[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return ""
+	}
+	return candidate[:i]
 }
