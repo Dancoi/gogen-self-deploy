@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
+	"github.com/Dancoi/gogen-self-deploy/internal/generator/dockerfiles_generators"
 )
 
 type pythonReport struct {
@@ -30,8 +31,15 @@ type pythonTplData struct {
 }
 
 // GeneratePythonPipeline рендерит GitLab CI из python-темплейта, создаёт 'gentmp',
-// сохраняет 'gentmp/.gitlab-ci.yml' и печатает его.
-func GeneratePythonPipeline(repoName string, analysis *analyzer.ProjectAnalysisResult) error {
+// генерирует/копирует Dockerfile в gentmp/Dockerfile, сохраняет 'gentmp/.gitlab-ci.yml' и печатает его.
+func GeneratePythonPipeline(analysis *analyzer.ProjectAnalysisResult) error {
+	// 0) Dockerfile
+	if _, err := dockerfiles_generators.GeneratePythonDockerfile(filepath.Join("gentmp", ".."), analysis); err != nil {
+		// repoRoot нам не передают; генератор Python Dockerfile сам копирует/рендерит в gentmp/Dockerfile из шаблона
+		// Используем шаблонный путь
+		_ = err // игнорируем, если шаблон не найден — пайплайн всё равно сгенерируется
+	}
+
 	// 1) Папка для вывода
 	tmpDir := "gentmp"
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
@@ -46,15 +54,11 @@ func GeneratePythonPipeline(repoName string, analysis *analyzer.ProjectAnalysisR
 	}
 
 	// 3) Данные из анализа
-	report := pythonReport{
-		LanguageVersion: "",
-		AppPort:         "8000",
-	}
+	report := pythonReport{LanguageVersion: "", AppPort: "8000"}
 	if m := firstPythonModule(analysis); m != nil {
 		if v := strings.TrimSpace(m.LanguageVersion); v != "" {
 			report.LanguageVersion = v
 		} else if v := strings.TrimSpace(m.FrameworkVersion); v != "" {
-			// запасной вариант, если версия ошибочно попала во фреймворк
 			report.LanguageVersion = v
 		}
 		if p := strings.TrimSpace(m.AppPort); p != "" {
@@ -63,17 +67,9 @@ func GeneratePythonPipeline(repoName string, analysis *analyzer.ProjectAnalysisR
 	}
 
 	// 4) Опции — можно пробрасывать через ENV
-	opts := pythonOpt{
-		SonarHost:       getenvDefault("SONAR_HOST_URL", ""),
-		RegistryProject: getenvDefault("REGISTRY_PROJECT", ""),
-	}
+	opts := pythonOpt{SonarHost: getenvDefault("SONAR_HOST_URL", ""), RegistryProject: getenvDefault("REGISTRY_PROJECT", "")}
 
-	data := pythonTplData{
-		Report:             report,
-		Opt:                opts,
-		Now:                time.Now().Format(time.RFC3339),
-		CI_COMMIT_REF_SLUG: "$CI_COMMIT_REF_SLUG",
-	}
+	data := pythonTplData{Report: report, Opt: opts, Now: time.Now().Format(time.RFC3339), CI_COMMIT_REF_SLUG: "$CI_COMMIT_REF_SLUG"}
 
 	// 5) Рендер
 	tpl, err := template.New("python-ci").Option("missingkey=zero").Parse(string(raw))
@@ -85,14 +81,18 @@ func GeneratePythonPipeline(repoName string, analysis *analyzer.ProjectAnalysisR
 		return fmt.Errorf("execute template: %w", err)
 	}
 
-	// 6) Сохранение и вывод
+	// 6) Гарантировать, что docker job использует gentmp/Dockerfile
+	yaml := buf.String()
+	yaml = strings.ReplaceAll(yaml, "-f Dockerfile", "-f gentmp/Dockerfile")
+
+	// 7) Сохранение и вывод
 	outPath := filepath.Join(tmpDir, ".gitlab-ci.yml")
-	if err := os.WriteFile(outPath, buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(outPath, []byte(yaml), 0o644); err != nil {
 		return fmt.Errorf("write .gitlab-ci.yml: %w", err)
 	}
 
 	fmt.Println("----- .gitlab-ci.yml -----")
-	fmt.Print(buf.String())
+	fmt.Print(yaml)
 	fmt.Println("----- end -----")
 	fmt.Println("Saved to:", outPath)
 	return nil

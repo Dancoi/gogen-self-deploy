@@ -59,7 +59,11 @@ var rootCmd = &cobra.Command{
 				fmt.Println("Node pipeline generated and printed")
 			}
 		case hasLanguage(analyzerRep, analyzer.LanguagePython):
-			fmt.Println("Python detected: generation to be implemented")
+			if err := pipelines_generators.GeneratePythonPipeline(analyzerRep); err != nil {
+				fmt.Println("Error generating Python pipeline:", err)
+			} else {
+				fmt.Println("Python pipeline generated and printed")
+			}
 		case hasLanguage(analyzerRep, analyzer.LanguageGo):
 			if err := pipelines_generators.GenerateGoPipeline(DTO_Repo.RepoName, repoRoot, analyzerRep); err != nil {
 				fmt.Println("Error generating Go pipeline:", err)
