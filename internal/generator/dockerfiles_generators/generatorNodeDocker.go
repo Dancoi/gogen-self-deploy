@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 
 	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
 )
 
-// GenerateNodeDockerfile генерирует (или копирует существующий) мультистейдж Dockerfile для Node/TS
-// Использует шаблон templates/dockerfiles/node/alpine/Dockerfile_node_multistage.tmpl
-// Сохраняет в gentmp/Dockerfile и печатает содержимое.
 func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisResult) (string, error) {
 	tmpDir := "gentmp"
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
@@ -21,7 +20,6 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 	}
 	outPath := filepath.Join(tmpDir, "Dockerfile")
 
-	// 1) Если есть существующий Dockerfile в корне
 	existing := filepath.Join(repoRoot, "Dockerfile")
 	if fi, err := os.Stat(existing); err == nil && !fi.IsDir() {
 		b, err := os.ReadFile(existing)
@@ -35,7 +33,6 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 		return outPath, nil
 	}
 
-	// 2) Шаблон
 	tplPath := filepath.Join("templates", "dockerfiles", "node", "alpine", "Dockerfile_node_multistage.tmpl")
 	raw, err := os.ReadFile(tplPath)
 	if err != nil {
@@ -55,7 +52,6 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 		return "", fmt.Errorf("parse node dockerfile template: %w", err)
 	}
 
-	// 3) Данные анализа
 	nodeVersion := "20"
 	appPort := ""
 	buildScript := "build"
@@ -65,7 +61,12 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 		for _, m := range analysis.Modules {
 			if m.Language == analyzer.LanguageJavaScript || m.Language == analyzer.LanguageTypeScript {
 				if v := strings.TrimSpace(m.LanguageVersion); v != "" {
-					nodeVersion = v
+					// parse version string and extract the highest major version number
+					if major := extractMajorVersion(v); major != "" {
+						nodeVersion = major
+					} else {
+						nodeVersion = v
+					}
 				}
 				if p := strings.TrimSpace(m.AppPort); p != "" {
 					appPort = p
@@ -96,6 +97,41 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 	}
 	printDockerfile(outPath, buf.Bytes())
 	return outPath, nil
+}
+
+// extractMajorVersion finds integers in a version expression and returns the maximum (major) version as string.
+// Examples:
+//
+//	">=20.0.0 <=24.x.x" -> "24"
+//	"20.x || 22.x || 24.x" -> "24"
+//	"^16.3.0" -> "16"
+func extractMajorVersion(s string) string {
+	// find all number sequences
+	re := regexp.MustCompile(`\d+`)
+	matches := re.FindAllString(s, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	max := -1
+	for _, m := range matches {
+		n, err := strconv.Atoi(m)
+		if err != nil {
+			continue
+		}
+		if n > max {
+			max = n
+		}
+	}
+	if max < 0 {
+		return ""
+	}
+	return strconv.Itoa(max)
+}
+
+// ResolveNodeMajor is an exported helper to resolve major Node version from a version expression.
+// It wraps the internal parser and is intended for quick tests and external callers.
+func ResolveNodeMajor(s string) string {
+	return extractMajorVersion(s)
 }
 
 func printDockerfile(path string, content []byte) {

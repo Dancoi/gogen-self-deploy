@@ -10,7 +10,7 @@
 # - .ExposePort
 
 # syntax=docker/dockerfile:1.7
-ARG BUILDER_IMAGE={{ default "node:20-alpine" .BaseImageBuilder }}
+ARG BUILDER_IMAGE={{ default "node:20" .BaseImageBuilder }}
 ARG RUNTIME_IMAGE={{ default "node:20-alpine" .BaseImageRuntime }}
 
 FROM ${BUILDER_IMAGE} AS deps
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/root/.npm \
 # Runtime: lightweight; copy only production deps and dist
 {{- if .UseDistRuntime }}
 FROM alpine:3.20 AS runtime
-RUN apk add --no-cache nodejs
+RUN apk add --no-cache nodejs npm
 {{- else }}
 FROM ${RUNTIME_IMAGE} AS runtime
 {{- end }}

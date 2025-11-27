@@ -61,16 +61,13 @@ func GenerateGoPipeline(repoName string, repoRoot string, analysis *analyzer.Pro
 		}
 	}
 
-	// 5) Подстановка плейсхолдеров
 	rendered := renderWithDefaults(tpl, map[string]string{
 		"GOLANG_VERSION": goVersion,
 		"BINARY_NAME":    binaryName,
 	})
 
-	// 6) Гарантировать docker stage/job в пайплайне
 	rendered = appendGoDockerJob(rendered, dockerfilePath)
 
-	// 7) Сохранение в gentmp/.gitlab-ci.yml и вывод
 	outPath := filepath.Join(tmpDir, ".gitlab-ci.yml")
 	if err := os.WriteFile(outPath, []byte(rendered), 0o644); err != nil {
 		return fmt.Errorf("write .gitlab-ci.yml: %w", err)
@@ -83,12 +80,9 @@ func GenerateGoPipeline(repoName string, repoRoot string, analysis *analyzer.Pro
 	return nil
 }
 
-// ensureGoDockerfile: если в репо уже есть Dockerfile — используем его; иначе рендерим мультистейдж из шаблона.
 func ensureGoDockerfile(repoRoot, tmpDir string, analysis *analyzer.ProjectAnalysisResult) (string, error) {
-	// Ищем существующий Dockerfile в корне/модуле
 	existing := filepath.Join(repoRoot, "Dockerfile")
 	if fi, err := os.Stat(existing); err == nil && !fi.IsDir() {
-		// Копируем в gentmp/Dockerfile
 		dst := filepath.Join(tmpDir, "Dockerfile")
 		b, err := os.ReadFile(existing)
 		if err != nil {
@@ -103,7 +97,6 @@ func ensureGoDockerfile(repoRoot, tmpDir string, analysis *analyzer.ProjectAnaly
 		fmt.Println("----- end -----")
 		return dst, nil
 	}
-	// Если анализатор дал путь
 	if analysis != nil && len(analysis.Modules) > 0 {
 		m := analysis.Modules[0]
 		if p := strings.TrimSpace(m.DockerfilePath); p != "" {
@@ -146,10 +139,8 @@ func ensureGoDockerfile(repoRoot, tmpDir string, analysis *analyzer.ProjectAnaly
 	}
 	tpl, err := template.New("go-dockerfile").Funcs(funcs).Option("missingkey=zero").Parse(string(raw))
 	if err != nil {
-		// парсинг не удался — используем встроенный мультистейдж
 		return renderGoDockerfileFallback(tmpDir, analysis)
 	}
-	// Собираем данные
 	goVersion := "1.22"
 	binaryName := "app"
 	appPort := ""
@@ -176,7 +167,6 @@ func ensureGoDockerfile(repoRoot, tmpDir string, analysis *analyzer.ProjectAnaly
 	}
 	var buf bytes.Buffer
 	if err := tpl.Execute(&buf, data); err != nil {
-		// рендер не удался — используем встроенный мультистейдж
 		return renderGoDockerfileFallback(tmpDir, analysis)
 	}
 	dst := filepath.Join(tmpDir, "Dockerfile")
@@ -190,7 +180,6 @@ func ensureGoDockerfile(repoRoot, tmpDir string, analysis *analyzer.ProjectAnaly
 	return dst, nil
 }
 
-// renderGoDockerfileFallback — встроенный мультистейдж Dockerfile без внешних зависимостей.
 func renderGoDockerfileFallback(tmpDir string, analysis *analyzer.ProjectAnalysisResult) (string, error) {
 	goVersion := "1.22"
 	binaryName := "app"
@@ -243,7 +232,7 @@ func sanitizeBinaryName(name string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// renderWithDefaults заменяет ${KEY} и ${KEY:-default} на значения из vars.
+
 func renderWithDefaults(tpl string, vars map[string]string) string {
 	reDef := regexp.MustCompile(`\$\{([A-Z0-9_]+):-[^}]*}`)
 	tpl = reDef.ReplaceAllStringFunc(tpl, func(m string) string {
@@ -268,9 +257,7 @@ func renderWithDefaults(tpl string, vars map[string]string) string {
 	return tpl
 }
 
-// appendGoDockerJob добавляет docker stage+job, если их нет, используя указанный Dockerfile
 func appendGoDockerJob(yaml string, dockerfilePath string) string {
-	// Простейшая эвристика: если нет слова 'docker' в stages, дописываем секцию.
 	if !strings.Contains(yaml, "stage: docker") && !strings.Contains(yaml, "- docker") {
 		yaml += "\n\ndocker_build_push:\n  stage: docker\n  image: docker:24.0.7\n  services:\n    - name: docker:24.0.7-dind\n      command: [\"--tls=false\"]\n  variables:\n    DOCKER_DRIVER: overlay2\n  script:\n    - IMAGE=\"${CI_REGISTRY_IMAGE:-}\"\n    - TAG=\"${CI_COMMIT_SHORT_SHA:-local}\"\n    - if [ -z \"$IMAGE\" ]; then echo \"No image configured, set REGISTRY\"; exit 1; fi\n    - docker build -t \"$IMAGE:$TAG\" -f " + dockerfilePath + " .\n    - docker push \"$IMAGE:$TAG\"\n    - if [ \"$CI_COMMIT_BRANCH\" = \"main\" ] || [ \"$CI_COMMIT_BRANCH\" = \"master\" ]; then docker tag \"$IMAGE:$TAG\" \"$IMAGE:latest\"; docker push \"$IMAGE:latest\"; fi\n  only:\n    - branches\n"
 	}

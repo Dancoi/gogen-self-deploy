@@ -10,6 +10,7 @@ variables:
   APP_NAME: "${APP_NAME:-app}"
   BUILD_DIR: "${BUILD_DIR:-dist}"
   NPM_CACHE_DIR: "$CI_PROJECT_DIR/.cache/npm"
+  IMAGE: "$CI_REGISTRY_IMAGE"
 
 stages:
   - install

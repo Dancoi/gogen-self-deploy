@@ -44,7 +44,12 @@ func GenerateNodePipeline(repoName string, repoRoot string, analysis *analyzer.P
 		for _, m := range analysis.Modules {
 			if m.Language == analyzer.LanguageJavaScript || m.Language == analyzer.LanguageTypeScript {
 				if v := strings.TrimSpace(m.LanguageVersion); v != "" {
-					nodeVersion = v
+					// normalize complex expressions to a single major version number when possible
+					if major := dockerfiles_generators.ResolveNodeMajor(v); major != "" {
+						nodeVersion = major
+					} else {
+						nodeVersion = v
+					}
 				}
 				break
 			}

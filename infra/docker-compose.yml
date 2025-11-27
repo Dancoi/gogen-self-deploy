@@ -89,7 +89,7 @@ services:
 
 # docker exec -it gitlab-runner gitlab-runner register --non-interactive \
 #   --url "http://gitlab/" \
-#   --registration-token "GR1348941Sgv6KZmzALxGvMKksXSz" \
+#   --registration-token "GR1348941xGvMKksXSz" \
 #   --executor "docker" \
 #   --docker-image "docker:latest" \
 #   --description "gogen-local-runner" \
