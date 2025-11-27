@@ -1,0 +1,71 @@
+# Multi-stage Dockerfile for Java/Kotlin with Maven
+# Supported variables:
+# - .BaseImageBuilder (default: 'maven:3.9-eclipse-temurin-17')
+# - .BaseImageRuntime (default: 'eclipse-temurin:17-jre')
+# - .AppWorkdir (default: '/app')
+# - .MavenSettingsPath (optional, path to custom settings.xml mounted at build)
+# - .ProjectJarPath (optional; auto-detected target/*.jar if empty)
+# - .BuildArgs (map[string]string)
+# - .Env (map[string]string)
+# - .Entrypoint (slice of strings, default: ['java','-jar','/app/app.jar'])
+# - .ExposePort (string, optional)
+
+# syntax=docker/dockerfile:1.7
+ARG BUILDER_IMAGE={{ default "maven:3.9-eclipse-temurin-17" .BaseImageBuilder }}
+ARG RUNTIME_IMAGE={{ default "eclipse-temurin:17-jre" .BaseImageRuntime }}
+
+FROM ${BUILDER_IMAGE} AS builder
+WORKDIR {{ default "/app" .AppWorkdir }}
+
+{{- range $k, $v := .BuildArgs }}
+ARG {{ $k }}={{ $v }}
+{{- end }}
+
+{{- range $k, $v := .Env }}
+ENV {{ $k }}="{{ $v }}"
+{{- end }}
+
+# Cache Maven deps first
+COPY pom.xml .
+{{- if .MavenSettingsPath }}
+COPY {{ .MavenSettingsPath }} /root/.m2/settings.xml
+{{- end }}
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp dependency:go-offline
+
+# Copy source and build
+COPY src ./src
+# Optional: include additional Kotlin/Java sources/resources if present
+COPY . ./
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp package -DskipTests={{ default "false" .SkipTests }}
+
+# Optional Sonar scan stage (triggered if .EnableSonar is true)
+{{- if .EnableSonar }}
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp sonar:sonar \
+    -Dsonar.host.url={{ default "http://sonarqube:9000" .SonarHost }} \
+    -Dsonar.login={{ .SonarToken }}
+{{- end }}
+
+# Runtime image
+FROM ${RUNTIME_IMAGE} AS runtime
+WORKDIR {{ default "/app" .AppWorkdir }}
+
+# Copy artifact
+{{- if .ProjectJarPath }}
+COPY --from=builder {{ .ProjectJarPath }} /app/app.jar
+{{- else }}
+# Tries to find single jar under target
+COPY --from=builder /app/target/*.jar /app/app.jar
+{{- end }}
+
+{{- if .ExposePort }}
+EXPOSE {{ .ExposePort }}
+{{- end }}
+
+{{- if .Entrypoint }}
+ENTRYPOINT [{{- range $i, $e := .Entrypoint -}}{{ if $i }}, {{ end }}"{{ $e }}"{{- end -}}]
+{{- else }}
+ENTRYPOINT ["java","-jar","/app/app.jar"]
+{{- end }}

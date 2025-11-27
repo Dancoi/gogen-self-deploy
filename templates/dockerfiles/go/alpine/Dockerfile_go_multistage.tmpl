@@ -1,0 +1,65 @@
+# Multi-stage Dockerfile for Go (modules)
+# Variables:
+# - .GoVersion (default '1.22')
+# - .BaseImageBuilder (default 'golang:{{ default "1.22" .GoVersion }}-alpine')
+# - .BaseImageRuntime (default 'alpine:3.20')
+# - .AppWorkdir (default '/app')
+# - .BinaryName (default 'app')
+# - .CGOEnabled (default '0')
+# - .LdFlags (optional)
+# - .Env, .BuildArgs
+# - .ExposePort
+# - .Entrypoint (default ['/app/app'])
+
+# syntax=docker/dockerfile:1.7
+ARG GO_VERSION={{ default "1.22" .GoVersion }}
+ARG BUILDER_IMAGE={{ default (printf "golang:%s-alpine" (default "1.22" .GoVersion)) .BaseImageBuilder }}
+ARG RUNTIME_IMAGE={{ default "alpine:3.20" .BaseImageRuntime }}
+
+FROM ${BUILDER_IMAGE} AS builder
+WORKDIR {{ default "/app" .AppWorkdir }}
+RUN apk add --no-cache git build-base
+
+{{- range $k, $v := .BuildArgs }}
+ARG {{ $k }}={{ $v }}
+{{- end }}
+
+{{- range $k, $v := .Env }}
+ENV {{ $k }}="{{ $v }}"
+{{- end }}
+
+ENV CGO_ENABLED={{ default "0" .CGOEnabled }}
+# Cache go mod first
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Copy sources and build
+COPY . ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags "{{ default "" .LdFlags }}" -o {{ default "app" .BinaryName }} ./...
+
+# Optional: run tests
+{{- if .RunTests }}
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go test ./... -v
+{{- end }}
+
+# Runtime
+FROM ${RUNTIME_IMAGE} AS runtime
+WORKDIR /app
+RUN adduser -D -u 10001 appuser
+COPY --from=builder {{ default "/app" .AppWorkdir }}/{{ default "app" .BinaryName }} /app/app
+USER appuser
+
+{{- if .ExposePort }}
+EXPOSE {{ .ExposePort }}
+{{- end }}
+
+{{- if .Entrypoint }}
+ENTRYPOINT [{{- range $i, $e := .Entrypoint -}}{{ if $i }}, {{ end }}"{{ $e }}"{{- end -}}]
+{{- else }}
+ENTRYPOINT ["/app/app"]
+{{- end }}

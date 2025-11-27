@@ -1,0 +1,57 @@
+# Multi-stage Dockerfile for TypeScript/JavaScript with npm
+# Variables:
+# - .BaseImageBuilder (default 'node:20-alpine')
+# - .BaseImageRuntime (default 'node:20-alpine' or 'alpine:3.20' for dist only)
+# - .AppWorkdir (default '/app')
+# - .UseDistRuntime (bool; if true, runtime is dist-only with node installed only if needed)
+# - .BuildArgs, .Env
+# - .BuildScript (default 'build')
+# - .StartCommand (default 'node dist/index.js')
+# - .ExposePort
+
+# syntax=docker/dockerfile:1.7
+ARG BUILDER_IMAGE={{ default "node:20-alpine" .BaseImageBuilder }}
+ARG RUNTIME_IMAGE={{ default "node:20-alpine" .BaseImageRuntime }}
+
+FROM ${BUILDER_IMAGE} AS deps
+WORKDIR {{ default "/app" .AppWorkdir }}
+{{- range $k, $v := .BuildArgs }}
+ARG {{ $k }}={{ $v }}
+{{- end }}
+{{- range $k, $v := .Env }}
+ENV {{ $k }}="{{ $v }}"
+{{- end }}
+
+# Install deps with caching
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+
+FROM deps AS builder
+COPY . .
+RUN --mount=type=cache,target=/root/.npm \
+    npm run {{ default "build" .BuildScript }}
+
+# Runtime: lightweight; copy only production deps and dist
+{{- if .UseDistRuntime }}
+FROM alpine:3.20 AS runtime
+RUN apk add --no-cache nodejs
+{{- else }}
+FROM ${RUNTIME_IMAGE} AS runtime
+{{- end }}
+
+WORKDIR {{ default "/app" .AppWorkdir }}
+ENV NODE_ENV=production
+
+# Reinstall only production deps
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
+
+COPY --from=builder {{ default "/app" .AppWorkdir }}/dist ./dist
+
+{{- if .ExposePort }}
+EXPOSE {{ .ExposePort }}
+{{- end }}
+
+CMD ["/bin/sh","-c","{{ default "node dist/index.js" .StartCommand }}"]
