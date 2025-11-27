@@ -44,17 +44,13 @@ func GenerateNodePipeline(repoName string, repoRoot string, analysis *analyzer.P
 		for _, m := range analysis.Modules {
 			if m.Language == analyzer.LanguageJavaScript || m.Language == analyzer.LanguageTypeScript {
 				if v := strings.TrimSpace(m.LanguageVersion); v != "" {
-					// normalize complex expressions to a single major version number when possible
-					if major := dockerfiles_generators.ResolveNodeMajor(v); major != "" {
-						nodeVersion = major
-					} else {
-						nodeVersion = v
-					}
+					nodeVersion = v
 				}
 				break
 			}
 		}
 	}
+	nodeVersion = normalizeNodeVersionLocal(nodeVersion)
 	appName = sanitizeName(appName)
 
 	// 4) Подстановка
@@ -122,4 +118,25 @@ func renderWithDefaultsNode(tpl string, vars map[string]string) string {
 		return ""
 	})
 	return tpl
+}
+
+func normalizeNodeVersionLocal(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "20"
+	}
+	re := regexp.MustCompile(`\d{1,2}`)
+	nums := re.FindAllString(raw, -1)
+	if len(nums) == 0 {
+		return "20"
+	}
+	// берем минимальную >= 14
+	min := "20"
+	for _, n := range nums {
+		if n >= "14" {
+			min = n
+			break
+		}
+	}
+	return min
 }
