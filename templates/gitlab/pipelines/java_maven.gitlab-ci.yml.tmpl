@@ -1,0 +1,94 @@
+# GitLab CI/CD pipeline for Java (Maven)
+# Stages: maven_download -> build -> test -> package -> docker -> deploy
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  JAVA_VERSION: "${JAVA_VERSION:-17}"
+  APP_NAME: "${APP_NAME:-app}"
+  JAR_PATH: "${JAR_PATH:-target/*.jar}"
+
+stages:
+  - maven_download
+  - build
+  - test
+  - package
+  - docker
+  - deploy
+
+.cache_maven: &cache_maven
+  key: "maven-$CI_COMMIT_REF_SLUG"
+  paths:
+    - .m2/repository
+  policy: pull-push
+
+maven_download:
+  stage: maven_download
+  image: maven:${JAVA_VERSION}-eclipse-temurin
+  cache: *cache_maven
+  script:
+    - mvn -B -q dependency:go-offline
+  rules:
+    - when: always
+
+build:
+  stage: build
+  image: maven:${JAVA_VERSION}-eclipse-temurin
+  cache: *cache_maven
+  script:
+    - mvn -B -q compile
+  rules:
+    - when: always
+
+test:
+  stage: test
+  image: maven:${JAVA_VERSION}-eclipse-temurin
+  cache: *cache_maven
+  script:
+    - mvn -B test
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - target/surefire-reports/
+  rules:
+    - when: always
+
+package:
+  stage: package
+  image: maven:${JAVA_VERSION}-eclipse-temurin
+  cache: *cache_maven
+  script:
+    - mvn -B package -DskipTests
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - target/*.jar
+  rules:
+    - when: always
+
+docker_build_push:
+  stage: docker
+  image: docker:24.0.7
+  services:
+    - name: docker:24.0.7-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_DRIVER: overlay2
+  script:
+    - IMAGE="${CI_REGISTRY_IMAGE:-}"; TAG="${CI_COMMIT_SHORT_SHA:-local}"; if [ -z "$IMAGE" ]; then echo "No registry image set"; exit 1; fi
+    - docker build -t "$IMAGE:$TAG" -f gentmp/Dockerfile .
+    - docker push "$IMAGE:$TAG"
+    - if [ "$CI_COMMIT_BRANCH" = "main" ] || [ "$CI_COMMIT_BRANCH" = "master" ]; then docker tag "$IMAGE:$TAG" "$IMAGE:latest"; docker push "$IMAGE:latest"; fi
+  rules:
+    - when: always
+
+deploy:
+  stage: deploy
+  image: alpine:3.20
+  script:
+    - echo "Deploy placeholder for Maven app"
+  when: manual
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+

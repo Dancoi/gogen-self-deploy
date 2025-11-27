@@ -6,11 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
+	"sort"
 	"strings"
 	"text/template"
 
 	"github.com/Dancoi/gogen-self-deploy/internal/analyzer"
+	"github.com/Dancoi/gogen-self-deploy/internal/generator/util"
 )
 
 func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisResult) (string, error) {
@@ -29,7 +30,7 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 		if err := os.WriteFile(outPath, b, 0o644); err != nil {
 			return "", err
 		}
-		printDockerfile(outPath, b)
+		util.PrintDockerfile(outPath, b)
 		return outPath, nil
 	}
 
@@ -52,7 +53,8 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 		return "", fmt.Errorf("parse node dockerfile template: %w", err)
 	}
 
-	nodeVersion := "20"
+	// 3) Данные анализа
+	rawNodeVersion := "20"
 	appPort := ""
 	buildScript := "build"
 	startCmd := "node dist/index.js"
@@ -61,12 +63,7 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 		for _, m := range analysis.Modules {
 			if m.Language == analyzer.LanguageJavaScript || m.Language == analyzer.LanguageTypeScript {
 				if v := strings.TrimSpace(m.LanguageVersion); v != "" {
-					// parse version string and extract the highest major version number
-					if major := extractMajorVersion(v); major != "" {
-						nodeVersion = major
-					} else {
-						nodeVersion = v
-					}
+					rawNodeVersion = v
 				}
 				if p := strings.TrimSpace(m.AppPort); p != "" {
 					appPort = p
@@ -74,6 +71,15 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 				break
 			}
 		}
+	}
+	nodeVersion := normalizeNodeVersion(rawNodeVersion)
+	// Если скрипт build не найден, подменим на пустое выполнение
+	if !hasBuildScript(repoRoot) {
+		buildScript = ""
+	}
+	if !hasDistDir(repoRoot) {
+		startCmd = "node index.js"
+		useDistRuntime = false
 	}
 
 	data := map[string]any{
@@ -95,48 +101,56 @@ func GenerateNodeDockerfile(repoRoot string, analysis *analyzer.ProjectAnalysisR
 	if err := os.WriteFile(outPath, buf.Bytes(), 0o644); err != nil {
 		return "", err
 	}
-	printDockerfile(outPath, buf.Bytes())
+	util.PrintDockerfile(outPath, buf.Bytes())
 	return outPath, nil
 }
 
-// extractMajorVersion finds integers in a version expression and returns the maximum (major) version as string.
-// Examples:
-//
-//	">=20.0.0 <=24.x.x" -> "24"
-//	"20.x || 22.x || 24.x" -> "24"
-//	"^16.3.0" -> "16"
-func extractMajorVersion(s string) string {
-	// find all number sequences
-	re := regexp.MustCompile(`\d+`)
-	matches := re.FindAllString(s, -1)
-	if len(matches) == 0 {
-		return ""
+// normalizeNodeVersion приводит сложные выражения ("20.x 22.x 24.x", ">=18 <21", "^18.17.0") к мажорной версии
+func normalizeNodeVersion(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "20"
 	}
-	max := -1
-	for _, m := range matches {
-		n, err := strconv.Atoi(m)
-		if err != nil {
-			continue
+	re := regexp.MustCompile(`\d{1,2}`)
+	nums := re.FindAllString(raw, -1)
+	if len(nums) == 0 {
+		return "20"
+	}
+	// Выбираем минимальную подходящую мажорную > 10, но не экзотическую.
+	var majors []int
+	for _, n := range nums {
+		majors = append(majors, atoiSafe(n))
+	}
+	sort.Ints(majors)
+	for _, m := range majors {
+		if m >= 14 {
+			return fmt.Sprintf("%d", m)
 		}
-		if n > max {
-			max = n
-		}
 	}
-	if max < 0 {
-		return ""
-	}
-	return strconv.Itoa(max)
+	return nums[0]
 }
 
-// ResolveNodeMajor is an exported helper to resolve major Node version from a version expression.
-// It wraps the internal parser and is intended for quick tests and external callers.
-func ResolveNodeMajor(s string) string {
-	return extractMajorVersion(s)
+func atoiSafe(s string) int {
+	v := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return v
+		}
+		v = v*10 + int(r-'0')
+	}
+	return v
 }
 
-func printDockerfile(path string, content []byte) {
-	fmt.Println("Saved Dockerfile to:", path)
-	fmt.Println("----- Dockerfile -----")
-	fmt.Println(string(content))
-	fmt.Println("----- end -----")
+func hasBuildScript(root string) bool {
+	p := filepath.Join(root, "package.json")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(b), "\"build\"")
+}
+
+func hasDistDir(root string) bool {
+	info, err := os.Stat(filepath.Join(root, "dist"))
+	return err == nil && info.IsDir()
 }

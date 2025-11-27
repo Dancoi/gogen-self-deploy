@@ -50,8 +50,14 @@ var rootCmd = &cobra.Command{
 			analyzerRep.PrintSummary()
 		}
 
-		// Языковой выбор: node -> python -> go
+		// Языковой выбор: java -> node -> python -> go
 		switch {
+		case hasLanguage(analyzerRep, analyzer.LanguageJava):
+			if err := pipelines_generators.GenerateJavaPipeline(DTO_Repo.RepoName, repoRoot, analyzerRep); err != nil {
+				fmt.Println("Error generating Java pipeline:", err)
+			} else {
+				fmt.Println("Java pipeline generated and printed")
+			}
 		case hasLanguage(analyzerRep, analyzer.LanguageJavaScript), hasLanguage(analyzerRep, analyzer.LanguageTypeScript):
 			if err := pipelines_generators.GenerateNodePipeline(DTO_Repo.RepoName, repoRoot, analyzerRep); err != nil {
 				fmt.Println("Error generating Node pipeline:", err)
