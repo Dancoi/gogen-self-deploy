@@ -94,7 +94,7 @@ services:
   gogen-cli:
     build:
       context: .
-      dockerfile: infra/gogen/Dockerfile
+      dockerfile: gogen/Dockerfile
     container_name: gogen-cli
     restart: "no"
     volumes:
