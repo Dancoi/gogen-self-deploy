@@ -47,12 +47,11 @@ services:
   # GitLab CE (self-hosted) - hostname inside docker network is `gitlab`
   gitlab:
     image: gitlab/gitlab-ce:latest
-    container_name: gitlab
+    hostname: "localhost"
     restart: unless-stopped
-    hostname: "gitlab"
     environment:
       GITLAB_OMNIBUS_CONFIG: |
-        external_url 'http://gitlab'
+        external_url 'http://localhost'
         gitlab_rails['gitlab_shell_ssh_port'] = 2222
         gitlab_rails['initial_root_password'] = 'CHANGEME123'
     ports:
@@ -66,6 +65,8 @@ services:
     networks:
       - cicd_network
 
+      
+  
   # GitLab Runner
   gitlab-runner:
     image: gitlab/gitlab-runner:latest
