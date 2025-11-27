@@ -60,7 +60,7 @@ func AnalyzeNodeModule(result *ProjectAnalysisResult, start string) {
 			if v, ok := pkg.Engines["node"]; ok && v != "" {
 				module.LanguageVersion = normalizeNodeVersion(v)
 			} else {
-				module.LanguageVersion = "18"
+				module.LanguageVersion = "20"
 			}
 
 			checkFrameworks := func(deps map[string]string) {
