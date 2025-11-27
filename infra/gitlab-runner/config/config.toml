@@ -1,0 +1,18 @@
+concurrent = 1
+check_interval = 0
+
+[[runners]]
+  name = "gogen-local-runner"
+  url = "http://gitlab/"
+  # You must register the runner with a valid token. Use the command below from the host
+  # or exec into this container and run `gitlab-runner register` as described in README.
+  # token = "REPLACE_WITH_REGISTRATION_TOKEN"
+  executor = "docker"
+  [runners.docker]
+    tls_verify = false
+    image = "docker:latest"
+    privileged = true
+    disable_cache = false
+    volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]
+    # Important: run job containers on the same Docker network so they can resolve GitLab service
+    network_mode = "cicd_network"
