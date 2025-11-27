@@ -1,0 +1,49 @@
+# Multi-stage Dockerfile for TypeScript/JavaScript with pnpm
+# Variables:
+# - .BaseImageBuilder (default 'node:20-alpine')
+# - .BaseImageRuntime (default 'node:20-alpine')
+# - .AppWorkdir (default '/app')
+# - .BuildArgs, .Env
+# - .BuildScript (default 'build')
+# - .StartCommand (default 'node dist/index.js')
+# - .ExposePort
+
+# syntax=docker/dockerfile:1.7
+ARG BUILDER_IMAGE={{ default "node:20-alpine" .BaseImageBuilder }}
+ARG RUNTIME_IMAGE={{ default "node:20-alpine" .BaseImageRuntime }}
+
+FROM ${BUILDER_IMAGE} AS deps
+WORKDIR {{ default "/app" .AppWorkdir }}
+RUN corepack enable
+{{- range $k, $v := .BuildArgs }}
+ARG {{ $k }}={{ $v }}
+{{- end }}
+{{- range $k, $v := .Env }}
+ENV {{ $k }}="{{ $v }}"
+{{- end }}
+
+COPY package.json pnpm-lock.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+FROM deps AS builder
+COPY . .
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm {{ default "build" .BuildScript }}
+
+FROM ${RUNTIME_IMAGE} AS runtime
+WORKDIR {{ default "/app" .AppWorkdir }}
+ENV NODE_ENV=production
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --prod --frozen-lockfile
+
+COPY --from=builder {{ default "/app" .AppWorkdir }}/dist ./dist
+
+{{- if .ExposePort }}
+EXPOSE {{ .ExposePort }}
+{{- end }}
+
+CMD ["/bin/sh","-c","{{ default "node dist/index.js" .StartCommand }}"]

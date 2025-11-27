@@ -1,0 +1,70 @@
+# Multi-stage Dockerfile for Python with Poetry
+# Variables:
+# - .BaseImageBuilder (default 'python:3.12-slim')
+# - .BaseImageRuntime (default 'python:3.12-slim')
+# - .AppWorkdir (default '/app')
+# - .PoetryVersion (default '1.8.3')
+# - .Env, .BuildArgs
+# - .Entrypoint, .ExposePort
+
+# syntax=docker/dockerfile:1.7
+ARG BUILDER_IMAGE={{ default "python:3.12-slim" .BaseImageBuilder }}
+ARG RUNTIME_IMAGE={{ default "python:3.12-slim" .BaseImageRuntime }}
+ARG POETRY_VERSION={{ default "1.8.3" .PoetryVersion }}
+
+FROM ${BUILDER_IMAGE} AS builder
+WORKDIR {{ default "/app" .AppWorkdir }}
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl && rm -rf /var/lib/apt/lists/*
+
+{{- range $k, $v := .BuildArgs }}
+ARG {{ $k }}={{ $v }}
+{{- end }}
+{{- range $k, $v := .Env }}
+ENV {{ $k }}="{{ $v }}"
+{{- end }}
+
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 - --version ${POETRY_VERSION}
+ENV PATH=/root/.local/bin:$PATH
+
+# Pre-copy for dependency caching
+COPY pyproject.toml poetry.lock* ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    poetry config virtualenvs.create true && \
+    poetry install --no-interaction --no-ansi --only main
+
+# Copy sources and install including dev if requested
+COPY . .
+{{- if .IncludeDevDeps }}
+RUN --mount=type=cache,target=/root/.cache/pip \
+    poetry install --no-interaction --no-ansi
+{{- end }}
+
+# Optional tests
+{{- if .RunTests }}
+RUN poetry run pytest -q
+{{- end }}
+
+FROM ${RUNTIME_IMAGE} AS runtime
+WORKDIR {{ default "/app" .AppWorkdir }}
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Recreate minimal runtime env with Poetry
+COPY pyproject.toml poetry.lock* ./
+RUN pip install --upgrade pip && \
+    pip install poetry==${POETRY_VERSION} && \
+    poetry config virtualenvs.create true && \
+    poetry install --no-interaction --no-ansi --only main
+
+COPY --from=builder {{ default "/app" .AppWorkdir }} {{ default "/app" .AppWorkdir }}
+
+{{- if .ExposePort }}
+EXPOSE {{ .ExposePort }}
+{{- end }}
+
+{{- if .Entrypoint }}
+ENTRYPOINT [{{- range $i, $e := .Entrypoint -}}{{ if $i }}, {{ end }}"{{ $e }}"{{- end -}}]
+{{- else }}
+CMD ["poetry","run","python","-m","app"]
+{{- end }}

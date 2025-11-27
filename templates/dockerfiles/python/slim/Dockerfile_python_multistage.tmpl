@@ -1,0 +1,67 @@
+# Multi-stage Dockerfile for Python with pip and virtualenv
+# Variables:
+# - .BaseImageBuilder (default 'python:3.12-slim')
+# - .BaseImageRuntime (default 'python:3.12-slim')
+# - .AppWorkdir (default '/app')
+# - .RequirementsFile (default 'requirements.txt')
+# - .UseVenv (default 'true')
+# - .Env, .BuildArgs
+# - .Entrypoint (e.g. ['python','-m','app'])
+# - .ExposePort
+
+# syntax=docker/dockerfile:1.7
+ARG BUILDER_IMAGE={{ default "python:3.12-slim" .BaseImageBuilder }}
+ARG RUNTIME_IMAGE={{ default "python:3.12-slim" .BaseImageRuntime }}
+
+FROM ${BUILDER_IMAGE} AS builder
+WORKDIR {{ default "/app" .AppWorkdir }}
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+
+{{- range $k, $v := .BuildArgs }}
+ARG {{ $k }}={{ $v }}
+{{- end }}
+{{- range $k, $v := .Env }}
+ENV {{ $k }}="{{ $v }}"
+{{- end }}
+
+COPY {{ default "requirements.txt" .RequirementsFile }} /tmp/requirements.txt
+# Cache pip
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip
+
+{{- if eq (default "true" .UseVenv) "true" }}
+RUN python -m venv /venv
+ENV PATH=/venv/bin:$PATH
+{{- end }}
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r /tmp/requirements.txt
+
+COPY . .
+# Optional tests
+{{- if .RunTests }}
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pytest -q
+{{- end }}
+
+FROM ${RUNTIME_IMAGE} AS runtime
+WORKDIR {{ default "/app" .AppWorkdir }}
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+{{- if eq (default "true" .UseVenv) "true" }}
+COPY --from=builder /venv /venv
+ENV PATH=/venv/bin:$PATH
+{{- end }}
+
+COPY --from=builder {{ default "/app" .AppWorkdir }} {{ default "/app" .AppWorkdir }}
+
+{{- if .ExposePort }}
+EXPOSE {{ .ExposePort }}
+{{- end }}
+
+{{- if .Entrypoint }}
+ENTRYPOINT [{{- range $i, $e := .Entrypoint -}}{{ if $i }}, {{ end }}"{{ $e }}"{{- end -}}]
+{{- else }}
+CMD ["python","-m","app"]
+{{- end }}
