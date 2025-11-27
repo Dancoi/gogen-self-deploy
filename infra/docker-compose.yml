@@ -45,27 +45,6 @@ services:
         soft: 65536
         hard: 65536
 
-  # GitLab CE (self-hosted)
-#  gitlab:
-#    image: gitlab/gitlab-ce:latest
-#    container_name: gitlab
-#    restart: unless-stopped
-#    hostname: gitlab.local
-#    environment:
-#      GITLAB_OMNIBUS_CONFIG: |
-#        external_url 'http://localhost:8080'
-#        gitlab_rails['gitlab_shell_ssh_port'] = 2222
-#    ports:
-#      - "8080:80"   # web UI
-#      - "8443:443"  # optional https
-#      - "2222:22"   # SSH
-#    volumes:
-#      - gitlab_config:/etc/gitlab
-#      - gitlab_logs:/var/log/gitlab
-#      - gitlab_data:/var/opt/gitlab
-#    networks:
-#      - cicd_network
-
   gitlab:
      image: gitlab/gitlab-ce:latest
      hostname: "localhost"
@@ -110,6 +89,23 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - cicd_network
+
+  # Build/run our CLI inside a container (image built from repo). Does not auto-register runner.
+  gogen-cli:
+    build:
+      context: .
+      dockerfile: gogen/Dockerfile
+    container_name: gogen-cli
+    restart: "no"
+    volumes:
+      - ./:/workdir:cached
+    working_dir: /workdir
+    # default command does nothing — override when running the container to pass repo and output dir
+    entrypoint: ["/app/gogen-self-deploy"]
+    networks:
+      - cicd_network
+    depends_on:
+      - gitlab
 
 volumes:
   postgres_data:
